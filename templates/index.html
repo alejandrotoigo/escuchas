@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ request.app.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+
+<body>
+    <main class="page-shell">
+        <section class="hero-card">
+            <div>
+                <p class="eyebrow">Escuchas</p>
+                <h1>Alta rapida de campana y monitoreo continuo</h1>
+                <p class="hero-copy">Carga una campana, sus spots, un stream y deja corriendo un job infinito desde un
+                    unico formulario. Debajo tenes el listado de jobs para pausarlos cuando haga falta.</p>
+            </div>
+            <div class="status-stack">
+                {% if ui_auth_enabled and authenticated_user %}
+                <div class="auth-badge">Sesion: {{ authenticated_user }}</div>
+                <form action="/logout" method="post" class="logout-form">
+                    <button type="submit" class="ghost-button">Salir</button>
+                </form>
+                {% endif %}
+                <div class="status-chip {{ 'ok' if ffmpeg_ready else 'error' }}">FFmpeg {{ 'disponible' if ffmpeg_ready
+                    else 'no disponible' }}</div>
+                <div class="status-chip {{ 'ok' if job_runner_enabled else 'warn' }}">Job runner {{ 'activo' if
+                    job_runner_enabled else 'desactivado' }}</div>
+            </div>
+        </section>
+
+        {% if message %}
+        <section class="flash success">
+            <strong>OK.</strong> {{ message }}
+            {% if job_id %}<span class="flash-id">Job: {{ job_id }}</span>{% endif %}
+        </section>
+        {% endif %}
+
+        {% if error %}
+        <section class="flash error">
+            <strong>Error.</strong> {{ error }}
+        </section>
+        {% endif %}
+
+        <section class="layout-grid">
+            <article class="panel form-panel">
+                <div class="panel-heading">
+                    <p class="eyebrow">Creacion</p>
+                    <h2>Campana + spots + stream + job</h2>
+                </div>
+                <form action="/ui/setup" method="post" enctype="multipart/form-data" class="stacked-form">
+                    <fieldset>
+                        <legend>Campana</legend>
+                        <label>
+                            Nombre
+                            <input type="text" name="campaign_name" placeholder="Campana Abril" required>
+                        </label>
+                        <label>
+                            Marca
+                            <input type="text" name="campaign_brand" placeholder="Mi Marca">
+                        </label>
+                        <label>
+                            Notas
+                            <textarea name="campaign_notes" rows="3"
+                                placeholder="Contexto comercial, observaciones, etc."></textarea>
+                        </label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Spots</legend>
+                        <label>
+                            Archivos
+                            <input type="file" name="ad_files"
+                                accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.mp4,.mov,.mkv,.avi,.webm" multiple required>
+                        </label>
+                        <label>
+                            Titulos opcionales
+                            <textarea name="ad_titles" rows="4"
+                                placeholder="Un titulo por linea. Si lo dejas vacio, se usa el nombre del archivo."></textarea>
+                        </label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Stream</legend>
+                        <label>
+                            Nombre del stream
+                            <input type="text" name="stream_name" placeholder="Radio Demo" required>
+                        </label>
+                        <label>
+                            URL o fuente
+                            <input type="text" name="stream_source_url" placeholder="https://..." required>
+                        </label>
+                        <label>
+                            Descripcion
+                            <textarea name="stream_description" rows="3"
+                                placeholder="Canal, emisora o referencia interna"></textarea>
+                        </label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Job continuo</legend>
+                        <div class="field-grid">
+                            <label>
+                                Window seconds
+                                <input type="number" name="window_seconds" value="45" min="5" max="300" required>
+                            </label>
+                            <label>
+                                Window step seconds
+                                <input type="number" name="window_step_seconds" value="15" min="1" max="300" step="0.1"
+                                    required>
+                            </label>
+                            <label>
+                                Similarity threshold
+                                <input type="number" name="similarity_threshold" value="0.03" min="0.001" max="1"
+                                    step="0.001" required>
+                            </label>
+                            <label>
+                                Cooldown seconds
+                                <input type="number" name="cooldown_seconds" value="60" min="0" max="600" required>
+                            </label>
+                            <label>
+                                Pausa entre ventanas
+                                <input type="number" name="pause_between_windows_seconds" value="0" min="0" max="30"
+                                    step="0.1" required>
+                            </label>
+                        </div>
+                        <label class="check-row">
+                            <input type="checkbox" name="keep_evidence" checked>
+                            Guardar evidencias de los spots detectados
+                        </label>
+                    </fieldset>
+
+                    <button type="submit" class="primary-button">Crear todo y arrancar job infinito</button>
+                </form>
+            </article>
+
+            <article class="panel jobs-panel">
+                <div class="panel-heading jobs-heading">
+                    <div>
+                        <p class="eyebrow">Monitoreo</p>
+                        <h2>Jobs</h2>
+                    </div>
+                    <a class="secondary-link" href="/">Refrescar</a>
+                </div>
+
+                {% if jobs %}
+                <div class="jobs-list">
+                    {% for job in jobs %}
+                    <section class="job-card">
+                        <div class="job-topline">
+                            <div>
+                                <h3>{{ job.stream_name }}</h3>
+                                <p class="job-meta">Job {{ job.job_id }}{% if job.campaign_id %} · Campana {{
+                                    job.campaign_id }}{% endif %}</p>
+                            </div>
+                            <span class="job-status {{ job.status|replace('_', '-') }}">{{ job.status }}</span>
+                        </div>
+                        <dl class="job-stats">
+                            <div>
+                                <dt>Modo</dt>
+                                <dd>{{ 'Infinito' if job.run_forever else job.iterations }}</dd>
+                            </div>
+                            <div>
+                                <dt>Ventana</dt>
+                                <dd>{{ job.window_seconds }}s / {{ job.window_step_seconds }}s</dd>
+                            </div>
+                            <div>
+                                <dt>Detecciones</dt>
+                                <dd>{{ job.total_detections_created }}</dd>
+                            </div>
+                            <div>
+                                <dt>Iteraciones</dt>
+                                <dd>{{ job.completed_iterations }}</dd>
+                            </div>
+                            <div>
+                                <dt>Actualizado</dt>
+                                <dd>{{ job.updated_at }}</dd>
+                            </div>
+                        </dl>
+
+                        <div class="job-actions">
+                            <a class="secondary-link" href="/monitor/jobs/{{ job.job_id }}" target="_blank"
+                                rel="noreferrer">Ver JSON</a>
+                            {% if job.status in ['queued', 'running', 'pause_requested'] %}
+                            <form action="/ui/jobs/{{ job.job_id }}/pause" method="post">
+                                <button type="submit" class="ghost-button">Pausar</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </section>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No hay jobs todavia. Usa el formulario para crear una campana completa y arrancar el primero.</p>
+                </div>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="panel detections-panel">
+            <div class="panel-heading jobs-heading">
+                <div>
+                    <p class="eyebrow">Resultados</p>
+                    <h2>Detecciones y evidencias</h2>
+                </div>
+                <a class="secondary-link" href="/detections" target="_blank" rel="noreferrer">Ver JSON</a>
+            </div>
+
+            {% if detections %}
+            <div class="detections-list">
+                {% for detection in detections %}
+                <section class="detection-card">
+                    <div class="detection-topline">
+                        <div>
+                            <h3>{{ detection.ad_title }}</h3>
+                            <p class="job-meta">{{ detection.stream_name }} · {{ detection.detected_at }}</p>
+                        </div>
+                        <span class="status-chip ok">{{ detection.confidence }}</span>
+                    </div>
+                    <dl class="job-stats detection-stats">
+                        <div>
+                            <dt>Offset</dt>
+                            <dd>{{ detection.offset_seconds }}s</dd>
+                        </div>
+                        <div>
+                            <dt>ID deteccion</dt>
+                            <dd>{{ detection.id }}</dd>
+                        </div>
+                    </dl>
+                    <div class="job-actions detection-actions">
+                        {% if detection.has_evidence %}
+                        <audio controls preload="none" src="/ui/detections/{{ detection.id }}/evidence"></audio>
+                        <a class="secondary-link" href="/ui/detections/{{ detection.id }}/evidence" target="_blank"
+                            rel="noreferrer">Abrir evidencia</a>
+                        {% else %}
+                        <span class="job-meta">Sin evidencia disponible</span>
+                        {% endif %}
+                    </div>
+                </section>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p>Todavia no hay detecciones persistidas para mostrar.</p>
+            </div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+
+</html>

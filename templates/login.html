@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ request.app.title }} · Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+
+<body>
+    <main class="page-shell login-shell">
+        <section class="hero-card login-card">
+            <div>
+                <p class="eyebrow">Escuchas</p>
+                <h1>Ingreso al panel</h1>
+                <p class="hero-copy">Autenticacion minima para el frontend server-rendered. Usa las credenciales
+                    configuradas por entorno para entrar al panel operativo.</p>
+            </div>
+        </section>
+
+        <section class="panel login-panel">
+            <div class="panel-heading">
+                <p class="eyebrow">Acceso</p>
+                <h2>Iniciar sesion</h2>
+            </div>
+
+            {% if error %}
+            <section class="flash error compact-flash">
+                <strong>Error.</strong> {{ error }}
+            </section>
+            {% endif %}
+
+            <form action="/login" method="post" class="stacked-form login-form">
+                <input type="hidden" name="next_path" value="{{ next_path }}">
+                <label>
+                    Usuario
+                    <input type="text" name="username" value="{{ ui_username }}" autocomplete="username" required>
+                </label>
+                <label>
+                    Password
+                    <input type="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit" class="primary-button">Entrar</button>
+            </form>
+        </section>
+    </main>
+</body>
+
+</html>

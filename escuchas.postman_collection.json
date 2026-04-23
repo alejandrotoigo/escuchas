@@ -1,0 +1,394 @@
+{
+  "info": {
+    "_postman_id": "d0c0a3d6-2c3d-4d42-9f23-6c6e0d3560e6",
+    "name": "Escuchas API",
+    "description": "Coleccion de Postman para probar la API del proyecto Escuchas.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "campaignId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "adId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "streamId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "reemplazar-job-id",
+      "type": "string"
+    },
+    {
+      "key": "adTitle",
+      "value": "Spot demo abril",
+      "type": "string"
+    },
+    {
+      "key": "mediaFilePath",
+      "value": "C:\\ruta\\al\\spot.mp3",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Salud",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Verifica que la API este viva y si FFmpeg esta disponible.",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Campanas",
+      "item": [
+        {
+          "name": "POST Crear Campana",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id) {",
+                  "    pm.collectionVariables.set(\"campaignId\", String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "Crea una campana y guarda automaticamente el id en la variable campaignId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Campana Abril\",\n  \"brand\": \"Mi Marca\",\n  \"notes\": \"Prueba de monitoreo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Listar Campanas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/campaigns",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Spots",
+      "item": [
+        {
+          "name": "POST Subir Spot",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.ad_id) {",
+                  "    pm.collectionVariables.set(\"adId\", String(data.ad_id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "description": "Sube un spot. Si Postman no toma la variable mediaFilePath como archivo, elegi el archivo manualmente en el campo file.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{mediaFilePath}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ads/upload?campaign_id={{campaignId}}&title={{adTitle}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["ads", "upload"],
+              "query": [
+                {
+                  "key": "campaign_id",
+                  "value": "{{campaignId}}"
+                },
+                {
+                  "key": "title",
+                  "value": "{{adTitle}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Listar Spots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ads",
+              "host": ["{{baseUrl}}"],
+              "path": ["ads"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Streams",
+      "item": [
+        {
+          "name": "POST Crear Stream",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id) {",
+                  "    pm.collectionVariables.set(\"streamId\", String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TN Prueba\",\n  \"source_url\": \"https://www.youtube.com/watch?v=cb12KmMMDJA\",\n  \"description\": \"Canal de prueba\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/streams",
+              "host": ["{{baseUrl}}"],
+              "path": ["streams"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Listar Streams",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/streams",
+              "host": ["{{baseUrl}}"],
+              "path": ["streams"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monitoreo Manual",
+      "item": [
+        {
+          "name": "POST Ejecutar Monitor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stream_id\": {{streamId}},\n  \"window_seconds\": 45,\n  \"iterations\": 2,\n  \"similarity_threshold\": 0.03,\n  \"cooldown_seconds\": 60,\n  \"window_step_seconds\": 15,\n  \"pause_between_windows_seconds\": 0,\n  \"keep_evidence\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/monitor/run",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitor", "run"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Jobs De Monitoreo",
+      "item": [
+        {
+          "name": "POST Crear Job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.job_id) {",
+                  "    pm.collectionVariables.set(\"jobId\", data.job_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stream_id\": {{streamId}},\n  \"window_seconds\": 45,\n  \"iterations\": 4,\n  \"similarity_threshold\": 0.03,\n  \"cooldown_seconds\": 60,\n  \"window_step_seconds\": 15,\n  \"pause_between_windows_seconds\": 0,\n  \"keep_evidence\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/monitor/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitor", "jobs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Listar Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitor", "jobs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET Obtener Job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/jobs/{{jobId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitor", "jobs", "{{jobId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST Cancelar Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitor/jobs/{{jobId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitor", "jobs", "{{jobId}}", "cancel"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Detecciones",
+      "item": [
+        {
+          "name": "GET Listar Detecciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/detections",
+              "host": ["{{baseUrl}}"],
+              "path": ["detections"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -24,8 +24,10 @@ class MonitoringWindow(BaseModel):
 
 class MonitorRunRequest(BaseModel):
     stream_id: int
+    campaign_id: Optional[int] = Field(default=None, ge=1)
     window_seconds: int = Field(default=15, ge=5, le=300)
     iterations: int = Field(default=1, ge=1, le=500)
+    run_forever: bool = False
     similarity_threshold: float = Field(default=0.03, ge=0.001, le=1.0)
     cooldown_seconds: int = Field(default=60, ge=0, le=600)
     window_step_seconds: Optional[float] = Field(default=None, ge=1.0, le=300.0)
@@ -63,9 +65,12 @@ class MonitorJobCreateResponse(BaseModel):
     status: str
     stream_id: int
     stream_name: str
-    iterations: int
+    campaign_id: Optional[int] = None
+    iterations: Optional[int] = None
+    run_forever: bool
     window_seconds: int
     window_step_seconds: float
+    pause_between_windows_seconds: float
     started_at: str
 
 
@@ -74,11 +79,14 @@ class MonitorJobStatusResponse(BaseModel):
     status: str
     stream_id: int
     stream_name: str
-    iterations: int
+    campaign_id: Optional[int] = None
+    iterations: Optional[int] = None
+    run_forever: bool
     completed_iterations: int
     progress_percent: float
     window_seconds: int
     window_step_seconds: float
+    pause_between_windows_seconds: float
     similarity_threshold: float
     cooldown_seconds: int
     keep_evidence: bool

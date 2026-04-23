@@ -13,13 +13,15 @@ MVP para monitorear transmisiones en vivo y detectar la aparicion de spots publi
 ## Stack
 
 - FastAPI
-- SQLModel + SQLite
+- SQLModel + PostgreSQL
+- Alembic para migraciones versionadas
 - Librosa para analisis de audio
 - FFmpeg para extraer audio desde archivos de video
 
 ## Requisitos
 
 - Python 3.11+
+- PostgreSQL en `localhost:5432`
 - FFmpeg en el `PATH` si queres aceptar videos o normalizar algunos formatos de audio
 - `yt-dlp` para resolver enlaces reales de YouTube antes de monitorearlos
 
@@ -32,12 +34,46 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+La app usa por defecto esta conexion:
+
+```env
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/escuchas
+```
+
+Al iniciar, si la base `escuchas` no existe, se crea automaticamente y luego se ejecutan las migraciones de Alembic.
+
 ## Ejecutar
 
 La API queda disponible en:
 
 - `http://127.0.0.1:8000`
 - Swagger: `http://127.0.0.1:8000/docs`
+
+Si `UI_AUTH_ENABLED=true`, la UI de `http://127.0.0.1:8000/` pide login por sesion usando `UI_USERNAME` y `UI_PASSWORD`.
+
+## Migraciones
+
+Guia detallada: `docs/migraciones.md`
+
+Deploy en Railway: `docs/railway.md`
+
+Para ejecutar migraciones manualmente:
+
+```bash
+alembic upgrade head
+```
+
+Para crear una nueva migracion versionada tipo Flyway:
+
+```bash
+alembic revision -m "agrega tabla x"
+```
+
+Si queres autogenerar el diff contra los modelos:
+
+```bash
+alembic revision --autogenerate -m "ajusta esquema"
+```
 
 ## Flujo principal
 
@@ -86,6 +122,32 @@ La API queda disponible en:
 4. Guardar el `job_id` de la respuesta.
 5. Consultar `GET /monitor/jobs/{job_id}` para ver avance, resultados parciales y errores.
 6. Revisar `GET /detections`.
+
+## Worker dedicado
+
+Tambien podes separar la web del procesamiento de jobs:
+
+### Web
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### Worker
+
+```bash
+python -m app.worker
+```
+
+Configuracion recomendada cuando separas procesos:
+
+```env
+JOB_RUNNER_ENABLED=false   # en la web
+JOB_RUNNER_ENABLED=true    # en el worker
+JOB_RUNNER_POLL_SECONDS=5
+```
+
+El worker hace polling de jobs en estado `queued`, reanuda pendientes al arrancar y ejecuta el monitoreo fuera del proceso web.
 
 Para monitorear 40 minutos de corrido, una opcion simple es:
 

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import subprocess
+from time import sleep
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -17,10 +18,12 @@ from app.services.media import (
     build_constellation_hashes_from_file,
     ensure_storage_dirs,
     ffmpeg_available,
+    resolve_ffmpeg_executable,
 )
 from app.time_utils import ensure_local_datetime, now_local
 
 MIN_CONSISTENT_HASHES = 120
+EVIDENCE_PADDING_SECONDS = 2.0
 
 
 @dataclass
@@ -115,29 +118,30 @@ class StreamMonitor:
         self,
         stream: Stream,
         *,
+        campaign_id: int | None,
         window_seconds: int,
         window_step_seconds: float,
         iterations: int,
+        run_forever: bool,
         similarity_threshold: float,
         cooldown_seconds: int,
         keep_evidence: bool,
+        pause_between_windows_seconds: float = 0.0,
+        start_iteration: int = 1,
         progress_callback=None,
         should_cancel=None,
     ) -> list[dict]:
         if not ffmpeg_available():
             raise RuntimeError("FFmpeg no esta disponible para monitorear streams.")
 
-        ensure_storage_dirs()
-        ads = list(
-            self.session.exec(
-                select(Ad).where(Ad.processing_status == "ready").where(Ad.normalized_audio_path.is_not(None))
-            ).all()
-        )
-        if not ads:
-            raise RuntimeError("No hay spots listos para comparar.")
+        if not run_forever and start_iteration > iterations:
+            return []
 
-        prepared_ads = [prepared for ad in ads if (prepared := self.matcher.prepare_ad(ad)) is not None]
+        ensure_storage_dirs()
+        prepared_ads = self._load_prepared_ads(campaign_id)
         if not prepared_ads:
+            if campaign_id is not None:
+                raise RuntimeError("No hay spots listos para comparar en la campana seleccionada.")
             raise RuntimeError("No se pudieron preparar huellas de spots listos para comparar.")
 
         resolved_source_url = self._resolve_source_url(stream.source_url)
@@ -146,6 +150,7 @@ class StreamMonitor:
         bytes_per_second = settings.sample_rate * 2
         window_bytes = int(window_seconds * bytes_per_second)
         step_bytes = int(window_step_seconds * bytes_per_second)
+        current_iteration = start_iteration
 
         try:
             # Primero llenamos el buffer inicial para tener una ventana completa.
@@ -154,7 +159,7 @@ class StreamMonitor:
             first_result = self._scan_window(
                 stream=stream,
                 window_samples=rolling_samples,
-                iteration=1,
+                iteration=current_iteration,
                 prepared_ads=prepared_ads,
                 similarity_threshold=similarity_threshold,
                 cooldown_seconds=cooldown_seconds,
@@ -164,9 +169,12 @@ class StreamMonitor:
             if progress_callback:
                 progress_callback(first_result)
 
-            for iteration in range(2, iterations + 1):
+            while run_forever or current_iteration < iterations:
                 if should_cancel and should_cancel():
                     break
+
+                if pause_between_windows_seconds > 0:
+                    sleep(pause_between_windows_seconds)
 
                 new_chunk = self._read_exact_audio(process, step_bytes)
                 new_samples = self._pcm_bytes_to_samples(new_chunk)
@@ -175,10 +183,12 @@ class StreamMonitor:
                 if len(rolling_samples) > max_window_samples:
                     rolling_samples = rolling_samples[-max_window_samples:]
 
+                current_iteration += 1
+
                 iteration_result = self._scan_window(
                     stream=stream,
                     window_samples=rolling_samples,
-                    iteration=iteration,
+                    iteration=current_iteration,
                     prepared_ads=prepared_ads,
                     similarity_threshold=similarity_threshold,
                     cooldown_seconds=cooldown_seconds,
@@ -192,9 +202,21 @@ class StreamMonitor:
 
         return results
 
+    def _load_prepared_ads(self, campaign_id: int | None) -> list[PreparedAdFingerprint]:
+        statement = select(Ad).where(Ad.processing_status == "ready").where(Ad.normalized_audio_path.is_not(None))
+        if campaign_id is not None:
+            statement = statement.where(Ad.campaign_id == campaign_id)
+
+        ads = list(self.session.exec(statement).all())
+        return [prepared for ad in ads if (prepared := self.matcher.prepare_ad(ad)) is not None]
+
     def _open_stream_process(self, resolved_source_url: str) -> subprocess.Popen:
+        ffmpeg_executable = resolve_ffmpeg_executable()
+        if not ffmpeg_executable:
+            raise RuntimeError("FFmpeg no esta disponible para monitorear streams.")
+
         command = [
-            "ffmpeg",
+            ffmpeg_executable,
             "-loglevel",
             "error",
             "-i",
@@ -319,8 +341,25 @@ class StreamMonitor:
             if score < similarity_threshold:
                 continue
 
-            # Guardamos evidencia para poder auditar despues por que hubo una coincidencia.
-            evidence_path = self._store_evidence(window_samples, stream.id, ad.id) if keep_evidence else None
+            if self._is_detection_in_cooldown(
+                stream_id=stream.id,
+                ad_id=ad.id,
+                cooldown_seconds=cooldown_seconds,
+            ):
+                continue
+
+            # Una coincidencia significa que el spot salio al aire; guardamos solo ese tramo con contexto.
+            evidence_path = (
+                self._store_evidence(
+                    window_samples,
+                    stream.id,
+                    ad.id,
+                    offset_seconds=offset_seconds,
+                    spot_duration_seconds=prepared_ad.duration_seconds,
+                )
+                if keep_evidence
+                else None
+            )
             created_detection = self._persist_detection_if_needed(
                 stream_id=stream.id,
                 ad_id=ad.id,
@@ -329,6 +368,11 @@ class StreamMonitor:
                 evidence_path=evidence_path,
                 cooldown_seconds=cooldown_seconds,
             )
+            if not created_detection:
+                if evidence_path:
+                    Path(evidence_path).unlink(missing_ok=True)
+                continue
+
             matches.append(
                 MatchResult(
                     ad_id=ad.id,
@@ -360,6 +404,27 @@ class StreamMonitor:
             ],
         }
 
+    def _is_detection_in_cooldown(
+        self,
+        *,
+        stream_id: int,
+        ad_id: int,
+        cooldown_seconds: int,
+    ) -> bool:
+        statement = (
+            select(Detection)
+            .where(Detection.stream_id == stream_id)
+            .where(Detection.ad_id == ad_id)
+            .order_by(Detection.detected_at.desc())
+        )
+        last_detection = self.session.exec(statement).first()
+        if not last_detection:
+            return False
+
+        last_detected_at = ensure_local_datetime(last_detection.detected_at)
+        elapsed = now_local() - last_detected_at
+        return elapsed.total_seconds() < cooldown_seconds
+
     def _persist_detection_if_needed(
         self,
         *,
@@ -370,17 +435,11 @@ class StreamMonitor:
         evidence_path: str | None,
         cooldown_seconds: int,
     ) -> bool:
-        statement = (
-            select(Detection)
-            .where(Detection.stream_id == stream_id)
-            .where(Detection.ad_id == ad_id)
-            .order_by(Detection.detected_at.desc())
-        )
-        last_detection = self.session.exec(statement).first()
-        if last_detection:
-            last_detected_at = ensure_local_datetime(last_detection.detected_at)
-            elapsed = now_local() - last_detected_at
-            if elapsed.total_seconds() < cooldown_seconds:
+        if self._is_detection_in_cooldown(
+            stream_id=stream_id,
+            ad_id=ad_id,
+            cooldown_seconds=cooldown_seconds,
+        ):
                 return False
 
         detection = Detection(
@@ -393,9 +452,37 @@ class StreamMonitor:
         self.session.add(detection)
         return True
 
-    def _store_evidence(self, window_samples: np.ndarray, stream_id: int, ad_id: int) -> str:
+    def _clip_evidence_samples(
+        self,
+        window_samples: np.ndarray,
+        *,
+        offset_seconds: float,
+        spot_duration_seconds: float,
+    ) -> np.ndarray:
+        total_seconds = len(window_samples) / settings.sample_rate
+        clip_start_seconds = max(offset_seconds - EVIDENCE_PADDING_SECONDS, 0.0)
+        clip_end_seconds = min(offset_seconds + max(spot_duration_seconds, 0.0) + EVIDENCE_PADDING_SECONDS, total_seconds)
+
+        start_index = max(int(clip_start_seconds * settings.sample_rate), 0)
+        end_index = min(max(int(np.ceil(clip_end_seconds * settings.sample_rate)), start_index + 1), len(window_samples))
+        return window_samples[start_index:end_index]
+
+    def _store_evidence(
+        self,
+        window_samples: np.ndarray,
+        stream_id: int,
+        ad_id: int,
+        *,
+        offset_seconds: float,
+        spot_duration_seconds: float,
+    ) -> str:
         ensure_storage_dirs()
         filename = f"stream{stream_id}_ad{ad_id}_{uuid4().hex}.wav"
         evidence_path = settings.evidence_dir / filename
-        sf.write(evidence_path, window_samples, settings.sample_rate)
+        evidence_samples = self._clip_evidence_samples(
+            window_samples,
+            offset_seconds=offset_seconds,
+            spot_duration_seconds=spot_duration_seconds,
+        )
+        sf.write(evidence_path, evidence_samples, settings.sample_rate)
         return str(evidence_path)

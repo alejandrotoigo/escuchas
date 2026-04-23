@@ -1,4 +1,5 @@
 import hashlib
+import os
 import shutil
 import subprocess
 from collections import defaultdict
@@ -22,8 +23,35 @@ FINGERPRINT_FAN_VALUE = 5
 FINGERPRINT_MIN_DB = -35.0
 
 
+def resolve_ffmpeg_executable() -> Optional[str]:
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+
+    candidates: list[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        winget_root = Path(local_app_data) / "Microsoft" / "WinGet" / "Packages"
+        if winget_root.exists():
+            candidates.extend(sorted(winget_root.glob("**/ffmpeg.exe"), reverse=True))
+
+    user_path = os.environ.get("PATH", "")
+    for raw_path in user_path.split(os.pathsep):
+        if not raw_path:
+            continue
+        candidate = Path(raw_path) / "ffmpeg.exe"
+        if candidate.exists():
+            return str(candidate)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
+
+
 def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return resolve_ffmpeg_executable() is not None
 
 
 def detect_media_type(filename: str) -> str:
@@ -50,11 +78,12 @@ def save_uploaded_file(source_file, destination: Path) -> None:
 
 def normalize_media_to_wav(source_path: Path, destination_path: Path, media_type: str) -> None:
     ensure_storage_dirs()
-    if not ffmpeg_available():
+    ffmpeg_executable = resolve_ffmpeg_executable()
+    if not ffmpeg_executable:
         raise RuntimeError("FFmpeg no esta instalado o no esta disponible en PATH.")
 
     command = [
-        "ffmpeg",
+        ffmpeg_executable,
         "-y",
         "-i",
         str(source_path),
